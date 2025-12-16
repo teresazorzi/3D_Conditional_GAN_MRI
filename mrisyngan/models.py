@@ -19,44 +19,30 @@ class CPUOptimizedGenerator3D(nn.Module):
         # Embedding piccolo
         self.label_embedding = nn.Embedding(num_classes, latent_dim // 2)
         input_dim = latent_dim + latent_dim // 2
+
+    # Dynamic layers
+    layers = []
+    in_channels = ngf * 8
+
+    for i in range(num_layers):
+        is_final_upsample = (i == num_layers - 1)
         
-        # Calcola quanti strati servono
-        start_size = 4
-        target_size = target_shape[0]
-        num_layers = 0
-        current = start_size
-        while current < target_size:
-            current *= 2
-            num_layers += 1
+        # Se è l'ultimo strato, l'output deve essere 1 (canale)
+        out_channels = 1 if is_final_upsample else max(ngf, in_channels // 2) 
         
-        # Initial
-        self.initial = nn.Sequential(
-            nn.ConvTranspose3d(input_dim, ngf * 8, 4, 1, 0, bias=False),
-            nn.InstanceNorm3d(ngf * 8, affine=True), # <--- Aggiunto InstanceNorm
-            nn.ReLU(True),
-        )
+        layers.append(nn.ConvTranspose3d(in_channels, out_channels, 4, 2, 1, bias=False))
         
-        # Dynamic layers
-        layers = []
-        in_channels = ngf * 8
-        
-        for i in range(num_layers):
-            out_channels = max(ngf, in_channels // 2)
+        if not is_final_upsample:
+            layers.append(nn.InstanceNorm3d(out_channels, affine=True))
+            layers.append(nn.ReLU(True))
+        else:
+            # Ultimo strato: solo Tanh, senza Normalizzazione
+            layers.append(nn.Tanh()) 
             
-            layers.append(nn.ConvTranspose3d(in_channels, out_channels, 4, 2, 1, bias=False))
-            
-            if i < num_layers - 1:
-                # Applica InstanceNorm e ReLU solo ai layer non finali
-                layers.append(nn.InstanceNorm3d(out_channels, affine=True)) # <--- Aggiunto InstanceNorm
-                layers.append(nn.ReLU(True))
-            else:
-                # Ultimo strato: Tanh ripristinato per stabilizzare contro l'esplosione
-                layers.append(nn.Tanh()) 
-                
-            in_channels = out_channels
-        
-        self.main = nn.Sequential(*layers)
+        in_channels = out_channels
     
+    self.main = nn.Sequential(*layers)
+
     def forward(self, z, labels):
         label_emb = self.label_embedding(labels)
         combined = torch.cat([z, label_emb], dim=1)
