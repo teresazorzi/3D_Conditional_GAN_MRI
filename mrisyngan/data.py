@@ -1,69 +1,112 @@
+# mrisyngan/data.py
+
 import os
 import glob
 import numpy as np
 import nibabel as nib
 import torch
-from torch.utils.data import Dataset # <-- QUESTA RIGA È CRITICA
-from torchvision.transforms import functional as F
-TARGET_SHAPE = (64, 64, 64)
-class MRINiftiDataset(Dataset):
-    def __init__(self, main_dir, label, target_shape=TARGET_SHAPE, transform=None):
-        self.paths = []
-        self.labels = []
-        self.transform = transform
-        self.target_shape = target_shape
-        
-        for patient in sorted(os.listdir(main_dir)):
-            patient_path = os.path.join(main_dir, patient)
-            nifti_path = os.path.join(patient_path, "nifti")
-            if not os.path.isdir(nifti_path):
-                continue
-            for fname in os.listdir(nifti_path):
-                if fname.endswith(".nii") or fname.endswith(".nii.gz"):
-                    file_path = os.path.join(nifti_path, fname)
-                    try:
-                        img = nib.load(file_path).get_fdata()
-                        self.paths.append(file_path)
-                        self.labels.append(label)
-                    except Exception as e:
-                        print(f"[✗] Errore: {file_path}: {e}")
-                    break
-        print(f"Trovati {len(self.paths)} file in {main_dir} (label={label})")
-    
-    def __len__(self):
-        return len(self.paths)
-    
-    def __getitem__(self, idx):
-        path = self.paths[idx]
-        img = nib.load(path).get_fdata().astype(np.float32)
-        
-        # Normalizzazione: I dati sono ASSUNTI essere già normalizzati tra [-1, 1].
-        # vmin, vmax = img.min(), img.max()
-        # img = (img - vmin) / (vmax - vmin + 1e-6)
-        # img = 2 * img - 1
-        
-        # Resize
-        tensor = torch.from_numpy(img).unsqueeze(0).unsqueeze(0)
-        tensor = F.interpolate(
-            tensor,
-            size=self.target_shape,
-            mode='trilinear',
-            align_corners=False
-        )
-        tensor = tensor.squeeze(0)
-        
-        if self.transform:
-            tensor = self.transform(tensor)
-        return tensor, self.labels[idx]
+from torch.utils.data import Dataset # Critical import
+from torch.utils.data import DataLoader # Critical import
+from torchvision.transforms import functional as F 
 
-def build_full_dataset(root_dir, target_shape=TARGET_SHAPE, transform=None):
-    classes = sorted([d for d in os.listdir(root_dir) 
-                      if os.path.isdir(os.path.join(root_dir, d))])
-    print("Classi trovate:", classes)
-    datasets = []
-    for label, cls in enumerate(classes):
-        class_path = os.path.join(root_dir, cls)
-        datasets.append(MRINiftiDataset(class_path, label=label, 
-                                       target_shape=target_shape, transform=transform))
-    full_dataset = ConcatDataset(datasets)
-    return full_dataset, classes
+# Default constant defined locally
+DEFAULT_TARGET_SHAPE = (64, 64, 64)
+
+class MRINiftiDataset(Dataset):
+    def __init__(self, main_dir, label, target_shape=DEFAULT_TARGET_SHAPE, transform=None):
+        self.main_dir = main_dir
+        self.label = label
+        self.target_shape = target_shape
+        self.transform = transform
+        
+        # Search for NIfTI files (e.g., .nii or .nii.gz)
+        # Using ** for recursive search, assuming data is organized in subfolders
+        search_pattern = os.path.join(self.main_dir, '**', '*.nii.gz')
+        self.file_list = glob.glob(search_pattern, recursive=True)
+        
+        if not self.file_list:
+            print(f"Warning: No NIfTI files found in {main_dir} with pattern {search_pattern}")
+
+    def __len__(self):
+        return len(self.file_list)
+
+    def __getitem__(self, idx):
+        file_path = self.file_list[idx]
+        
+        # Load NIfTI file
+        nii_img = nib.load(file_path)
+        data = nii_img.get_fdata()
+        
+        # Normalize and convert to tensor
+        data = (data - np.min(data)) / (np.max(data) - np.min(data)) # Scale to [0, 1]
+        data = data * 2 - 1 # Scale to [-1, 1]
+        
+        # Convert to Pytorch Tensor
+        # Add channel dimension (C=1) at index 0: (D, H, W) -> (1, D, H, W)
+        image = torch.from_numpy(data).float().unsqueeze(0) 
+        
+        # Resize/Interpolate if needed
+        current_shape = image.shape[1:]
+        if current_shape != self.target_shape:
+            # F.interpolate expects (N, C, D, H, W). We pass (1, D, H, W)
+            image = F.interpolate(image.unsqueeze(0), size=self.target_shape, mode='trilinear', align_corners=False).squeeze(0)
+            
+        if self.transform:
+            image = self.transform(image)
+            
+        # The label is returned as a tensor
+        label_tensor = torch.tensor(self.label, dtype=torch.long)
+        
+        return image, label_tensor
+
+def build_full_dataset(base_data_path, config, is_test=False):
+    """
+    Combines datasets for different classes into a single DataLoader.
+    
+    Args:
+        base_data_path (str): Root path where class folders (0, 1, 2) are located.
+        config (dict): Configuration dictionary (must contain 'batch_size').
+        is_test (bool): Flag to indicate if this is for testing (smaller subset/batch size if needed).
+        
+    Returns:
+        DataLoader: A combined DataLoader for all classes.
+    """
+    all_datasets = []
+    num_classes = config['num_classes']
+
+    # Iterate over class folders (0, 1, 2, ...)
+    for label_id in range(num_classes):
+        class_dir = os.path.join(base_data_path, str(label_id))
+        
+        if os.path.isdir(class_dir):
+            # Create a dataset for the current class/label
+            dataset = MRINiftiDataset(
+                main_dir=class_dir,
+                label=label_id,
+                target_shape=tuple(config['target_shape']),
+                transform=None # Add transformations here if needed
+            )
+            # Filter out empty datasets (if no NIfTI files found)
+            if len(dataset) > 0:
+                all_datasets.append(dataset)
+        else:
+            print(f"Warning: Class directory not found: {class_dir}")
+
+    if not all_datasets:
+        raise FileNotFoundError("Error: No data found for any class. Check data path and structure.")
+
+    # Combine all datasets
+    combined_dataset = torch.utils.data.ConcatDataset(all_datasets)
+
+    # Create DataLoader
+    batch_size = config['test_batch_size'] if is_test else config['batch_size']
+    
+    dataloader = DataLoader(
+        combined_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=config['num_workers'],
+        pin_memory=True
+    )
+    
+    return dataloader

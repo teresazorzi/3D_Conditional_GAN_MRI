@@ -1,0 +1,23 @@
+# Configuration for 3D Conditional WGAN-GP Training
+
+# --- REPRODUCIBILITY & DATA ---
+ROOT_DIR: /path/to/mri/data             # REPLACE THIS with the actual path on YOUR system for testing!
+TARGET_SHAPE: [64, 64, 64]
+RANDOM_SEED: 42                         # Ensures reproducible results
+NUM_CLASSES: 3                          # AD, CN, LMCI
+
+# --- MODEL HYPERPARAMETERS (Optimized for Stability B=1) ---
+BATCH_SIZE: 1
+NUM_EPOCHS: 200                         
+LATENT_DIM: 64
+NGF_NDF: 32                             
+
+# CRITICAL FIX for DIVERGENCE (B=1 requires tiny steps, reduced from 5e-5)
+LEARNING_RATE_BASE: 0.000005            
+LAMBDA_GP: 10
+N_CRITIC: 35                            
+
+# --- ENVIRONMENT ---
+DEVICE: cpu                             # Forced CPU usage
+NUM_WORKERS: 2
+SAVE_INTERVAL: 10
