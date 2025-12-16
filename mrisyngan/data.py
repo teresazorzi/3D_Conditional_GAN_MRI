@@ -1,3 +1,10 @@
+import os
+import glob
+import numpy as np
+import nibabel as nib
+import torch
+from torch.utils.data import Dataset # <-- QUESTA RIGA È CRITICA
+from torchvision.transforms import functional as F
 class MRINiftiDataset(Dataset):
     def __init__(self, main_dir, label, target_shape=TARGET_SHAPE, transform=None):
         self.paths = []
