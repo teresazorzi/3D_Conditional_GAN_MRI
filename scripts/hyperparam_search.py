@@ -23,20 +23,17 @@ import torch
 
 
 def train_and_evaluate_wrapper(config: Dict[str, Any], data_root: str, device: str):
+    """Import and call the package-level train_and_evaluate implementation.
+
+    This prefers `mrisyngan.train.train_and_evaluate` which is the canonical
+    implementation (added to make the function importable from scripts).
     """
-    Try to import your project's train_and_evaluate. Adjust the import if necessary.
-    Expected to return (score: float, model_state: Any).
-    """
-    # Try a couple of reasonable import paths and raise a clear error if none work.
     try:
-        from scripts.train_cli import train_and_evaluate as real_fn
-    except Exception:
-        try:
-            from mrisyngan.train import train_and_evaluate as real_fn  # alternative path
-        except Exception as e:
-            raise ImportError(
-                "Could not import train_and_evaluate. Please adjust import inside hyperparam_search.py"
-            ) from e
+        from mrisyngan.train import train_and_evaluate as real_fn
+    except Exception as e:
+        raise ImportError(
+            "Could not import mrisyngan.train.train_and_evaluate. Ensure the package is installed or the PYTHONPATH is correct."
+        ) from e
     return real_fn(config, data_root, device)
 
 

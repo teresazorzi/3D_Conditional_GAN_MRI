@@ -14,7 +14,8 @@ from torch.utils.data import DataLoader
 # Import your modules
 # NOTE: Ensure you have implemented these classes/functions in the respective files
 from mrisyngan.data import build_full_dataset
-from mrisyngan.utils import train_conditional_gan, generate_class_specific_samples
+from mrisyngan.train import train_and_evaluate
+from mrisyngan.utils import generate_class_specific_samples
 
 def load_config(config_path):
     """Loads configuration parameters from a YAML file."""
@@ -68,60 +69,29 @@ def main():
     print(f"Device: {config.get('DEVICE', 'cpu')}")
     print(f"Target Shape: {config.get('TARGET_SHAPE')}\n")
 
-    # 2. DATA LOAD (Using mrisyngan/data.py)
-    print("Loading dataset...")
-    target_shape = tuple(config['TARGET_SHAPE'])
-    device = torch.device(config.get('DEVICE', 'cpu'))
-
-    try:
-        dataset, class_names = build_full_dataset(data_dir, target_shape=target_shape)
-    except Exception as e:
-        # Catch errors during NIfTI loading (e.g., bad file format)
-        raise RuntimeError(f"Failed to build dataset from {data_dir}: {e}") from e
-
-    print(f"Total samples: {len(dataset)}")
-    class_to_idx = {name: idx for idx, name in enumerate(class_names)}
-    
-    train_loader = DataLoader(
-        dataset, 
-        batch_size=config['BATCH_SIZE'],
-        shuffle=True, 
-        num_workers=config.get('NUM_WORKERS', 0),
-        pin_memory=False
-    )
-    
-    # 3. START TRAINING (The "Simulation" Step)
+    # 2. START TRAINING
     print("\nStarting GAN training...")
-    G_final, D_final, g_losses, d_losses = train_conditional_gan(
-        dataloader=train_loader,
-        num_classes=len(class_names),
-        target_shape=target_shape,
-        num_epochs=config['NUM_EPOCHS'],
-        latent_dim=config['LATENT_DIM'],
-        lr=config['LEARNING_RATE_BASE'], # Critical stability parameter
-        lambda_gp=config['LAMBDA_GP'],
-        n_critic=config['N_CRITIC'],
-        device=device,
-        save_interval=config['SAVE_INTERVAL'],
-        ngf=config['NGF_NDF'],
-        ndf=config['NGF_NDF']
-    )
-    
+
+    # Use the reusable train_and_evaluate helper which loads defaults and applies overrides
+    # We pass the loaded YAML config as overrides so command-line options are respected.
+    score, model_state = train_and_evaluate(config, data_dir, device)
+
     # Save the final checkpoint
     final_checkpoint_path = 'cpu_gan_final.pth'
     torch.save({
-        'generator_state_dict': G_final.state_dict(),
-        'discriminator_state_dict': D_final.state_dict(),
-        'g_losses': g_losses,
+        'generator_state_dict': model_state['generator_state_dict'],
+        'discriminator_state_dict': model_state['discriminator_state_dict'],
+        'g_losses': model_state.get('g_losses', []),
         # ... save all config/metadata needed for later reconstruction ...
-        'latent_dim': config['LATENT_DIM'],
-        'num_classes': len(class_names),
-        'class_names': class_names,
-        'target_shape': config['TARGET_SHAPE'],
-        'ngf': config['NGF_NDF'], 
-        'ndf': config['NGF_NDF']
+        'latent_dim': model_state.get('latent_dim', config.get('LATENT_DIM')),
+        'num_classes': model_state.get('num_classes'),
+        'class_names': model_state.get('class_names'),
+        'target_shape': model_state.get('target_shape', config.get('TARGET_SHAPE')),
+        'ngf': model_state.get('ngf'), 
+        'ndf': model_state.get('ndf')
     }, final_checkpoint_path)
-    print(f"\nTRAINING COMPLETE! Final model saved: {final_checkpoint_path}")
+
+    print(f"\nTRAINING COMPLETE! Final model saved: {final_checkpoint_path} | Score: {score:.4f}")
 
     # 4. GENERATE SAMPLES (The "Analysis" Step, separated from simulation)
     print("\nStarting final sample generation (Analysis phase)...")
