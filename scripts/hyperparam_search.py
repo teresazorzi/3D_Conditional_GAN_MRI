@@ -83,6 +83,11 @@ def main():
     results_file = args.out_dir / "results.jsonl"
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+    # Validate data_root path early to fail fast with clear message
+    if not args.data_root or not os.path.isdir(args.data_root):
+        logging.error("ERROR: --data_root must be set to an existing directory. Provided: %s", args.data_root)
+        raise SystemExit(1)
+
     random.seed(42)
     np.random.seed(42)
     torch.manual_seed(42)

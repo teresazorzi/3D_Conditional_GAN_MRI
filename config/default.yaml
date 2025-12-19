@@ -1,7 +1,7 @@
 # Configuration for 3D Conditional WGAN-GP Training
 
 # --- REPRODUCIBILITY & DATA ---
-ROOT_DIR: /path/to/mri/data             # REPLACE THIS with the actual path on YOUR system for testing!
+ROOT_DIR: E:/PATTERN/PATIENTS0             # Change this to your actual path
 TARGET_SHAPE: [64, 64, 64]
 RANDOM_SEED: 42                         # Ensures reproducible results
 NUM_CLASSES: 3                          # AD, CN, LMCI
