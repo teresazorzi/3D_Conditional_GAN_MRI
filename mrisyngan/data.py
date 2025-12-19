@@ -7,7 +7,8 @@ import nibabel as nib
 import torch
 from torch.utils.data import Dataset # Critical import
 from torch.utils.data import DataLoader # Critical import
-from torchvision.transforms import functional as F 
+import torch.nn.functional as F
+
 
 # Default constant defined locally
 DEFAULT_TARGET_SHAPE = (64, 64, 64)
